@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Testing WebScokets</title>
+<script src="jquery.js"></script>
+<script src="client.js"></script>
+<script>
+$(document).ready(function () {
+  var ws = new WebSocket('ws://localhost:8000/newConn');
+  ws.onopen = function(ev) {
+    var msg = {}; // [ 1, 2, 3 ];
+    $('#b').click(function () {
+      console.log('sending...');
+      ws.send(JSON.stringify(msg));
+    });
+  };
+  ws.onmessage = function(ev) { serverMessage(ws, ev.data); };
+});
+
+function serverMessage(ws, msg) {
+
+  switch (msg.what) {
+
+    case "choose_player":
+      break;
+
+    case "choose_role":
+      break;
+
+    case "choose_swap":
+      break;
+
+    case "choose_action":
+      break;
+
+    case "choose_response":
+      break;
+
+    case "are_you_ready":
+      break;
+
+
+    case "start_game":
+      break;
+
+    case "next_turn":
+      break;
+
+    case "game_over":
+      break;
+
+
+    case "invalid_response":
+      // hmm?
+      break;
+
+
+    default:
+      console.log(msg);
+  }
+}
+
+</script>
+</head>
+
+<body>
+
+<button id='b'>b</button>
+</body>
+</html>
