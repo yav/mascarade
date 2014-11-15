@@ -1,5 +1,5 @@
 {-# LANGUAGE RecordWildCards, ParallelListComp #-}
--- {-# LANGUAGE Safe #-}
+{-# LANGUAGE Safe #-}
 module Mascarade where
 
 import Protocol
@@ -196,7 +196,7 @@ newGame conns =
                                                  else allActions
        return (\playerPrev playerNext -> Player { .. })
 
--- Convert a list to an infinite list of conses.
+-- | Convert a list to an infinite list of conses.
 -- When we run out of elements, we start emitting 'undefined'
 toStream :: [a] -> [a]
 toStream ~(x:xs) = x : toStream xs
