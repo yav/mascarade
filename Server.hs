@@ -2,27 +2,29 @@
 module Main (main) where
 
 import           Snap.Http.Server ( quickHttpServe )
-import           Snap.Core ( Snap, setContentType )
+import           Snap.Core ( Snap, setContentType, getParam )
 import qualified Snap.Core as Snap
 import qualified Network.WebSockets as WS
 import           Network.WebSockets.Snap ( runWebSocketsSnap )
 import           Control.Monad ( forM_, unless )
 import           Control.Monad.IO.Class (liftIO)
-import           Data.Aeson (FromJSON, ToJSON)
-import qualified Data.Aeson as JS
+import           Data.Map (Map)
+import qualified Data.Map as Map
 
 import           Protocol
 import           Data.Text ( Text )
+import qualified Data.Text.Encoding as Text
 
 import           Control.Concurrent.STM
 import qualified Control.Exception as X
 
-type ServerState = TVar [Conn]
+
+type ServerState = Map Text Room
 
 data Room = Room
   { roomName       :: !Text
   , roomNextPlayer :: !PlayerId
-  , roomPlayers    :: ![ (PlayerId, Conn) ]
+  , roomPlayers    :: ![ (PlayerId, Conn, Bool) ]
   }
 
 
@@ -30,51 +32,77 @@ data Room = Room
 
 main :: IO ()
 main =
-  do s <- newServerState
+  do s <- atomically (newTVar Map.empty)
      quickHttpServe $ Snap.route
        [ ("index.html",  sendHtml "index.html")
        , ("jquery.js",   sendJS   "jquery.js")
        , ("client.js",   sendJS   "client.js")
        , ("newConn",     newClient s)
-       , ("test",        doTest s)
+ --      , ("test",        doTest s)
        ]
-
+{-
 doTest :: ServerState -> Snap ()
 doTest s =
   liftIO $
   do cs <- atomically (readTVar s)
      forM_ cs $ \c -> send c $ ChoosePlayer [3]
-
-newServerState :: IO ServerState
-newServerState = atomically (newTVar [])
+-}
 
 
 -- | Start a new client.
-newClient :: ServerState -> Snap ()
-newClient s = runWebSocketsSnap client
+newClient :: TVar ServerState -> Snap ()
+newClient s =
+  do mb <- getParam "room"
+     let room = case mb of
+                  Just p  -> Text.decodeUtf8 p
+                  Nothing -> "default"
+     runWebSocketsSnap (client room)
   where
-  client pending =
+  client room pending =
     do conn <- WS.acceptRequest pending
        done <- atomically (newTVar False)
 
-       let stop   = atomically (writeTVar done True)
+       let pConn = Conn
+            { stop    = atomically (writeTVar done True)
+            , stopped = atomically (readTVar done)
+            , send    = \x -> WS.sendTextData conn (toClient x)
+                                  `X.catch` \X.SomeException {} -> stop pConn
+            , recv = do lbs <- WS.receiveData conn
+                        case fromClient lbs of
+                          Just msg -> return msg
+                          Nothing  -> return ISentGarbage
+                      `X.catch` \X.SomeException {} ->
+                                   do stop pConn
+                                      return IDisconnected
+            }
 
-           stopped = atomically (readTVar done)
 
-           send x = WS.sendTextData conn (toClient x)
-                      `X.catch` \X.SomeException {} -> stop
+           updateRoom (Just Room { .. }) =
+             Just Room { roomPlayers = (roomNextPlayer, pConn, False)
+                                                                  : roomPlayers
+                       , roomNextPlayer = 1 + roomNextPlayer
+                       , .. }
 
-           recv = do lbs <- WS.receiveData conn
-                     case fromClient lbs of
-                       Just msg -> return msg
-                       Nothing  -> return ISentGarbage
-                   `X.catch` \X.SomeException {} ->
-                                do stop
-                                   return IDisconnected
+           updateRoom Nothing =
+             Just Room { roomNextPlayer = 1
+                       , roomPlayers    = [ (1, pConn, False) ]
+                       , roomName       = room
+                       }
 
-       atomically (modifyTVar s (Conn { .. } :))
+       atomically $ modifyTVar' s $ Map.alter updateRoom room
+
        atomically $ do isDone <- readTVar done
                        unless isDone retry
+
+
+announceRoomUpdate :: Room -> IO ()
+announceRoomUpdate Room { .. } =
+  forM_ roomPlayers $ \(pid,conn) ->
+    send conn $ RoomUpdate
+              $ RoomInfo { riName    = roomName
+                         , riYouAre  = pid
+                         , riPlayers = [ (p,r) | (p,_,r) <- roomPlayers ]
+                         }
 
 
 -- | Send a static HTML file.

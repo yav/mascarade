@@ -102,6 +102,21 @@ data ClientMsg      -- Requests from the server --------------------------------
                       -- ^ These players won the game.
 
 
+                    -- The "lobby" ---------------------------------------------
+                    | RoomUpdate RoomInfo
+
+
+data RoomInfo = RoomInfo
+  { riName    :: Text
+    -- ^ Name of the room
+
+  , riYouAre  :: PlayerId
+    -- ^ Id of receiving player
+
+  , riPlayers :: [ (PlayerId, Bool) ]
+    -- ^ Everyone in the room, and their ready-state
+  }
+
 
 
 --  | Information available at the beginning of the game.
@@ -120,10 +135,10 @@ data NewGame = NewGame
 -- | The game state ate the beginning of a turn.
 -- This has everything the client needs to know, so it can be fairly stateless.
 data NewTurn = NewTurn
-  { turnPlayers     :: [(PlayerId, Int)]
+  { turnPlayers :: [(PlayerId, Int)]
     -- ^ Active players, and their money.
 
-  , turnCourtHouse  :: Int
+  , turnCourtHouse :: Int
     -- ^ How much money in the court house.
 
   , turnRoles :: [Role]
@@ -196,6 +211,12 @@ instance Receivable Int where
                               guard (denominator r == 1)
                               return (fromIntegral (numerator r))
   fromJSON _             = Nothing
+
+instance Sendable Text where
+  toJSON x = JS.String x
+
+instance Sendable Bool where
+  toJSON x = JS.Bool x
 
 
 instance Sendable a => Sendable [a] where
@@ -355,6 +376,9 @@ instance Sendable ClientMsg where
       PlayerWins ps ->
         obj "game_over" [ "winners" .= ps ]
 
+      RoomUpdate ri ->
+        obj "room" [ "info" .= ri ]
+
     where
     obj x fs = object ( "what" JS..= (x :: Text) : fs )
 
@@ -378,6 +402,17 @@ instance Sendable NewTurn where
            , "players"        .= [ object [ "player" .= p, "money" .= m ]
                                     | (p,m) <- turnPlayers ]
            ]
+
+instance Sendable RoomInfo where
+  toJSON RoomInfo { .. } =
+    object [ "room"     .= riName
+           , "you_are"  .= riYouAre
+           , "players" .= [ object [ "player" .= p
+                                   , "ready"  .= r ] | (p,r) <- riPlayers ]
+           ]
+
+
+
 
 
 toClient :: ClientMsg -> LBS.ByteString
