@@ -7,7 +7,6 @@ import qualified Snap.Core as Snap
 import qualified Network.WebSockets as WS
 import           Network.WebSockets.Snap ( runWebSocketsSnap )
 import           Control.Monad ( forM_, unless )
-import           Control.Monad.IO.Class (liftIO)
 import           Data.Map (Map)
 import qualified Data.Map as Map
 
@@ -16,6 +15,7 @@ import           Data.Text ( Text )
 import qualified Data.Text.Encoding as Text
 
 import           Control.Concurrent.STM
+import           Control.Concurrent(MVar, newMVar, modifyMVar_)
 import qualified Control.Exception as X
 
 
@@ -27,30 +27,28 @@ data Room = Room
   , roomPlayers    :: ![ (PlayerId, Conn, Bool) ]
   }
 
+emptyRoom :: Text -> Room
+emptyRoom roomName = Room { roomNextPlayer = 0
+                          , roomPlayers    = []
+                          , .. }
+
 
 
 
 main :: IO ()
 main =
-  do s <- atomically (newTVar Map.empty)
+  do s <- newMVar Map.empty
      quickHttpServe $ Snap.route
-       [ ("index.html",  sendHtml "index.html")
+       [ ("/",  sendHtml "index.html")
        , ("jquery.js",   sendJS   "jquery.js")
        , ("client.js",   sendJS   "client.js")
        , ("newConn",     newClient s)
  --      , ("test",        doTest s)
        ]
-{-
-doTest :: ServerState -> Snap ()
-doTest s =
-  liftIO $
-  do cs <- atomically (readTVar s)
-     forM_ cs $ \c -> send c $ ChoosePlayer [3]
--}
 
 
--- | Start a new client.
-newClient :: TVar ServerState -> Snap ()
+-- | Start a new client, and insert it into one of the rooms.
+newClient :: MVar ServerState -> Snap ()
 newClient s =
   do mb <- getParam "room"
      let room = case mb of
@@ -76,28 +74,27 @@ newClient s =
                                       return IDisconnected
             }
 
+       modifyMVar_ s $ \roomMap ->
+          do let Room { .. } = Map.findWithDefault (emptyRoom room) room roomMap
+                 r = Room { roomPlayers    = (roomNextPlayer, pConn, False)
+                                           : roomPlayers
+                          , roomNextPlayer = 1 + roomNextPlayer
+                          , roomName       = room
+                          }
+             announceRoomUpdate r
+             return $! Map.insert room r roomMap
 
-           updateRoom (Just Room { .. }) =
-             Just Room { roomPlayers = (roomNextPlayer, pConn, False)
-                                                                  : roomPlayers
-                       , roomNextPlayer = 1 + roomNextPlayer
-                       , .. }
 
-           updateRoom Nothing =
-             Just Room { roomNextPlayer = 1
-                       , roomPlayers    = [ (1, pConn, False) ]
-                       , roomName       = room
-                       }
 
-       atomically $ modifyTVar' s $ Map.alter updateRoom room
 
        atomically $ do isDone <- readTVar done
                        unless isDone retry
 
 
+-- | Send the current state of a room to all participants.
 announceRoomUpdate :: Room -> IO ()
 announceRoomUpdate Room { .. } =
-  forM_ roomPlayers $ \(pid,conn) ->
+  forM_ roomPlayers $ \(pid,conn,_) ->
     send conn $ RoomUpdate
               $ RoomInfo { riName    = roomName
                          , riYouAre  = pid

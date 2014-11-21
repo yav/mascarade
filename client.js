@@ -1,6 +1,6 @@
 
 
-function newClient(ws) {
+function newClient(ws,display) {
 
   var connected = false;
   var ourId;
@@ -9,6 +9,50 @@ function newClient(ws) {
   var activeRoles;
   var npcNum;
 
+  function playerName(playerId) {
+    var names = [ "Alfirin"
+                , "Belegorn"
+                , "Cullas"
+                , "Doron"
+                , "Elanor"
+                , "Fêr"
+                , "Galenas"
+                , "Halloth"
+                , "Iorthon"
+                , "Loth"
+                , "Meril"
+                , "Nínim"
+                , "Ophen"
+                ];
+    if (playerId >= 0 && playerId < names.length) return names[playerId];
+    return ('player ' + playerId);
+  }
+
+
+  function drawRoom(info) {
+    display.empty();
+    display.append($('<h1/>').text(info.name));
+    var table = $('<table/>');
+    display.append(table);
+
+    jQuery.each(info.players, function(ix, player) {
+      var tr = $('<tr/>');
+      table.append(tr);
+
+      var name = $('<td/>').text(playerName(player.player));
+      var stat = $('<td/>').text(player.ready ? 'ready' : 'not ready');
+
+      if (player.player === info.you_are) {
+        name.css('font-weight', 'bold');
+        stat.css('cursor', 'pointer')
+            .click(function() {
+                console.log('click');
+            });
+      }
+
+      tr.append(name).append(stat);
+    });
+  }
 
   function choosePlayer(opts) {
     var me = $('<table/>');
@@ -27,12 +71,15 @@ function newClient(ws) {
   }
 
 
-  ws.onmessage = function(ev) { connected = true; }
-
   ws.onmessage = function (msg) {
+     data = JSON.parse(msg.data);
 
-     switch (msg.what) {
+     switch (data.what) {
 
+       case "room":
+         drawRoom(data.info); break;
+
+/*
        case "start_game":
          var s = msg.state;
          ourId = s.you_are;
@@ -95,9 +142,10 @@ function newClient(ws) {
        case "invalid_response":
          // hmm?
          break;
-
+*/
 
        default:
+         console.log('unknown message');
          console.log(msg);
      }
   };

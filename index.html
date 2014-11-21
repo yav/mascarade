@@ -7,7 +7,9 @@
 <script src="client.js"></script>
 <script>
 $(document).ready(function () {
-  newClient (new WebSocket('ws://localhost:8000/newConn'));
+  newClient (new WebSocket('ws://localhost:8000/newConn')
+            , $('body')
+            );
 });
 
 </script>
